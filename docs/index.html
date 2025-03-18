@@ -142,11 +142,17 @@
             init() {
                 document.documentElement.setAttribute('data-theme', this.currentTheme);
                 this.updateChartThemes();
+                // Add theme class to body
+                document.body.classList.add(this.currentTheme + '-theme');
             },
 
             toggle() {
                 this.currentTheme = this.currentTheme === 'light' ? 'dark' : 'light';
                 document.documentElement.setAttribute('data-theme', this.currentTheme);
+                document.body.classList.replace(
+                    `${this.currentTheme === 'light' ? 'dark' : 'light'}-theme`,
+                    `${this.currentTheme}-theme`
+                );
                 localStorage.setItem('theme', this.currentTheme);
                 this.updateChartThemes();
                 logger.info(`Switched to ${this.currentTheme} theme`);
@@ -180,6 +186,17 @@
             
             // Move process button event listener here
             document.getElementById('processButton').addEventListener('click', processData);
+
+            document.getElementById('csvFile').addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    logger.info(`Selected file: ${file.name} (${formatFileSize(file.size)})`);
+                    document.getElementById('processButton').disabled = false;
+                } else {
+                    logger.warning('File selection canceled');
+                    document.getElementById('processButton').disabled = true;
+                }
+            });
         });
 
         // Logging utility class
@@ -214,14 +231,13 @@
 
         async function processData() {
             try {
-                // Initialize logger if not already initialized
-                if (!logger) {
-                    logger = new Logger('logger');
-                }
+                const processBtn = document.getElementById('processButton');
+                // Disable button during processing
+                processBtn.disabled = true;
+                processBtn.textContent = 'Processing...';
                 
                 // Show loading indicator
                 document.getElementById('loading').style.display = 'inline-block';
-                document.getElementById('processButton').disabled = true;
                 
                 logger.info('Starting data processing...');
                 
@@ -292,9 +308,10 @@
                 logger.error(`Error during data processing: ${error.message}`);
                 console.error('Processing error:', error);
             } finally {
-                // Hide loading indicator
+                // Restore button state
+                processBtn.disabled = false;
+                processBtn.textContent = 'Process Data';
                 document.getElementById('loading').style.display = 'none';
-                document.getElementById('processButton').disabled = false;
             }
         }
 
@@ -634,6 +651,16 @@
 
         function createVisualizations(df, fixations) {
             try {
+                if (!df || df.length === 0) {
+                    throw new Error('No data available for visualizations');
+                }
+                
+                // Destroy existing plots before creating new ones
+                ['gazePath', 'velocityChart', 'fixationMap', 'heatmap'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) Plotly.purge(el);
+                });
+
                 // Add theme colors to all chart layouts
                 const chartLayoutSettings = {
                     paper_bgcolor: getComputedStyle(document.documentElement)
@@ -706,8 +733,8 @@
                 if (fixations.length > 0) {
                     // Add detected fixations to gaze path plot
                     const fixationTrace = {
-                        x: fixations.map(f => f.x_centroid),
-                        y: fixations.map(f => f.y_centroid),
+                        x: fixations.map(f => f.centroid.x),
+                        y: fixations.map(f => f.centroid.y),
                         mode: 'markers',
                         marker: {
                             size: fixations.map(f => Math.sqrt(f.duration) / 5),
@@ -721,8 +748,8 @@
                     };
                     
                     const fixationMap = {
-                        x: fixations.map(f => f.x_centroid),
-                        y: fixations.map(f => f.y_centroid),
+                        x: fixations.map(f => f.centroid.x),
+                        y: fixations.map(f => f.centroid.y),
                         mode: 'markers+text',
                         marker: {
                             size: fixations.map(f => Math.min(Math.max(f.duration / 30, 10), 40)),
@@ -741,13 +768,13 @@
                         hoverinfo: 'text',
                         hovertext: fixations.map((f, i) => 
                             `Fixation ${i+1}<br>Duration: ${f.duration.toFixed(0)} ms<br>` + 
-                            `Position: (${f.x_centroid.toFixed(1)}, ${f.y_centroid.toFixed(1)})<br>` +
+                            `Position: (${f.centroid.x.toFixed(1)}, ${f.centroid.y.toFixed(1)})<br>` +
                             `Dispersion: ${f.dispersion.toFixed(1)} px`)
                     };
                     
                     const fixationConnections = {
-                        x: fixations.flatMap((f, i) => i > 0 ? [fixations[i-1].x_centroid, f.x_centroid, null] : []),
-                        y: fixations.flatMap((f, i) => i > 0 ? [fixations[i-1].y_centroid, f.y_centroid, null] : []),
+                        x: fixations.flatMap((f, i) => i > 0 ? [fixations[i-1].centroid.x, f.centroid.x, null] : []),
+                        y: fixations.flatMap((f, i) => i > 0 ? [fixations[i-1].centroid.y, f.centroid.y, null] : []),
                         mode: 'lines',
                         line: {
                             color: 'rgba(100, 100, 100, 0.5)',
