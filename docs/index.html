@@ -71,7 +71,10 @@
     <div class="section">
         <h3>Data Input</h3>
         <p>Upload a CSV file with eye-tracking data. The file should contain columns for timestamp, x, and y coordinates.</p>
-        <input type="file" id="csvFile" accept=".csv">
+        <div class="file-input-container">
+            <label for="csvFile">Select CSV file:</label>
+            <input type="file" id="csvFile" accept=".csv">
+        </div>
         <button id="processButton" onclick="processData()">Process Data</button>
         <span id="loading" class="loading">⟳</span>
     </div>
