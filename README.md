@@ -2,6 +2,46 @@
 
 This project is a simple web application that allows you to upload a CSV file containing gaze coordinates and calculate various statistics about the data.
 
+## File Structure
+
+```bash
+eye-tracking-analytics/
+├── src/
+│   ├── core/
+│   │   ├── preprocessing.js
+│   │   ├── fixation-detection.js
+│   │   └── metrics-calculation.js
+│   ├── ml/
+│   │   ├── classifier.js
+│   │   └── model-persistence.js
+│   ├── visualization/
+│   │   ├── chart-manager.js
+│   │   └── aoi-renderer.js
+│   └── utils/
+│       ├── logger.js
+│       └── data-validation.js
+├── docs/
+│   ├── index.html
+│   ├── styles/
+│   │   └── main.css
+│   └── assets/
+│       ├── example.csv
+│       └── demo-video.mp4
+├── models/
+│   └── pretrained/
+│       └── fixation-classifier.json
+├── tests/
+│   ├── unit/
+│   └── integration/
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── package.json
+├── webpack.config.js
+├── Dockerfile
+└── README.md
+```
+
 ## Features
 
 - Upload a CSV file with gaze coordinates
