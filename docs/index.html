@@ -123,6 +123,14 @@
         <div id="heatmap" class="chart"></div>
     </div>
 
+    <div id="reportOptions" style="display: none;">
+        <h4>Report Options</h4>
+        <label><input type="checkbox" name="charts" checked> Include Charts</label>
+        <label><input type="checkbox" name="stats" checked> Include Statistics</label>
+        <label><input type="checkbox" name="rawData"> Include Raw Data</label>
+        <input type="text" placeholder="Report Title" id="reportTitle">
+    </div>
+
     <script>
         // Global variables
         let logger;
@@ -789,6 +797,115 @@
 
                 Plotly.newPlot('heatmap', [heatmapTrace], heatmapLayout);
                 
+                // 4. Dynamic additional column visualizations
+                const additionalColumns = Object.keys(df[0] || {}).filter(key => 
+                    !['x', 'y', 'timestamp', 'x_norm', 'y_norm', 'velocity', 'duration'].includes(key));
+                
+                if (additionalColumns.length > 0) {
+                    logger.info(`Found additional data columns: ${additionalColumns.join(', ')}`);
+                    
+                    // Create a container for additional visualizations
+                    const additionalVisualizationsDiv = document.createElement('div');
+                    additionalVisualizationsDiv.id = 'additionalVisualizations';
+                    additionalVisualizationsDiv.innerHTML = '<h4>Additional Data Visualizations</h4>';
+                    document.getElementById('visualizations').appendChild(additionalVisualizationsDiv);
+                    
+                    // Create a visualization for each additional column
+                    additionalColumns.forEach(column => {
+                        // Check if column contains numeric data
+                        const isNumeric = df.every(d => !isNaN(parseFloat(d[column])));
+                        
+                        if (isNumeric) {
+                            // Create chart container
+                            const chartDiv = document.createElement('div');
+                            chartDiv.id = `chart_${column}`;
+                            chartDiv.className = 'chart';
+                            additionalVisualizationsDiv.appendChild(chartDiv);
+                            
+                            // Time series plot for numeric data
+                            const trace = {
+                                x: df.map((d, i) => (d.timestamp - df[0].timestamp) / 1000),
+                                y: df.map(d => parseFloat(d[column])),
+                                mode: 'lines',
+                                name: column,
+                                line: { color: `hsl(${Math.random() * 360}, 70%, 50%)` }
+                            };
+                            
+                            const layout = {
+                                ...chartLayoutSettings,
+                                title: `${column.charAt(0).toUpperCase() + column.slice(1)} Over Time`,
+                                xaxis: { title: 'Time (seconds)' },
+                                yaxis: { title: column }
+                            };
+                            
+                            Plotly.newPlot(`chart_${column}`, [trace], layout, { responsive: true });
+                            logger.info(`Created visualization for ${column}`);
+                            
+                            // Create correlation with gaze position if appropriate
+                            if (column !== 'duration') {
+                                const correlationDiv = document.createElement('div');
+                                correlationDiv.id = `correlation_${column}`;
+                                correlationDiv.className = 'chart';
+                                additionalVisualizationsDiv.appendChild(correlationDiv);
+                                
+                                const correlationTrace = {
+                                    x: df.map(d => parseFloat(d[column])),
+                                    y: df.map(d => d.velocity),
+                                    mode: 'markers',
+                                    type: 'scatter',
+                                    marker: {
+                                        color: 'rgba(0, 128, 255, 0.5)',
+                                        size: 8
+                                    },
+                                    name: `${column} vs Velocity`
+                                };
+                                
+                                const correlationLayout = {
+                                    ...chartLayoutSettings,
+                                    title: `${column} vs Velocity Correlation`,
+                                    xaxis: { title: column },
+                                    yaxis: { title: 'Velocity (pixels/second)' }
+                                };
+                                
+                                Plotly.newPlot(`correlation_${column}`, [correlationTrace], correlationLayout, { responsive: true });
+                            }
+                        } else {
+                            // For categorical data, create a frequency chart
+                            const chartDiv = document.createElement('div');
+                            chartDiv.id = `chart_${column}`;
+                            chartDiv.className = 'chart';
+                            additionalVisualizationsDiv.appendChild(chartDiv);
+                            
+                            // Count occurrences of each category
+                            const categories = {};
+                            df.forEach(d => {
+                                const value = d[column] || 'undefined';
+                                categories[value] = (categories[value] || 0) + 1;
+                            });
+                            
+                            const trace = {
+                                x: Object.keys(categories),
+                                y: Object.values(categories),
+                                type: 'bar',
+                                marker: {
+                                    color: Object.keys(categories).map((_, i) => 
+                                        `hsl(${i * 360 / Object.keys(categories).length}, 70%, 50%)`)
+                                }
+                            };
+                            
+                            const layout = {
+                                ...chartLayoutSettings,
+                                title: `${column.charAt(0).toUpperCase() + column.slice(1)} Distribution`,
+                                xaxis: { title: column },
+                                yaxis: { title: 'Frequency' }
+                            };
+                            
+                            Plotly.newPlot(`chart_${column}`, [trace], layout, { responsive: true });
+                            logger.info(`Created categorical visualization for ${column}`);
+                        }
+                    });
+                }
+                
                 document.getElementById('visualizations').style.display = 'block';
                 logger.success('All visualizations created successfully');
             } catch (error) {
@@ -842,6 +959,41 @@
                 logger.warning(`Error calculating polygon area: ${error.message}`);
                 return 0;
             }
+        }
+
+        // AOI Validation
+        function validateAOI(aoi) {
+            const requirements = {
+                rectangle: () => aoi.coordinates.length === 2,
+                circle: () => aoi.coordinates.length === 2,
+                polygon: () => aoi.coordinates.length >= 3
+            };
+            return requirements[aoi.type] ? requirements[aoi.type]() : false;
+        }
+
+        // Model Persistence
+        const ModelDB = {
+            async saveModel(name, model) {
+                const modelData = await model.save('indexedDB://' + name);
+                logger.success(`Model ${name} saved`);
+                return modelData;
+            },
+
+            async loadModel(name) {
+                const model = await tf.loadLayersModel('indexedDB://' + name);
+                logger.success(`Model ${name} loaded`);
+                return model;
+            }
+        };
+
+        // Statistical Indicators
+        function addSignificanceIndicators(results) {
+            return results.map(res => {
+                const stars = res.pValue < 0.001 ? '***' :
+                             res.pValue < 0.01 ? '**' :
+                             res.pValue < 0.05 ? '*' : '';
+                return {...res, significance: stars};
+            });
         }
     </script>
 </body>
