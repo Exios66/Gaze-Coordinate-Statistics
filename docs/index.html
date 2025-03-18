@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gaze Data Analysis</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.18.2.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hull.js/1.0.2/hull.js"></script>
     <style>
         :root {
@@ -102,7 +102,7 @@
             <label for="csvFile">Select CSV file:</label>
             <input type="file" id="csvFile" accept=".csv">
         </div>
-        <button id="processButton" onclick="processData()">Process Data</button>
+        <button id="processButton">Process Data</button>
         <span id="loading" class="loading">⟳</span>
     </div>
 
@@ -177,6 +177,9 @@
             logger = new Logger('logger');
             logger.info('Gaze Data Analysis Tool initialized');
             logger.info('Please upload a CSV file to begin');
+            
+            // Move process button event listener here
+            document.getElementById('processButton').addEventListener('click', processData);
         });
 
         // Logging utility class
@@ -211,6 +214,11 @@
 
         async function processData() {
             try {
+                // Initialize logger if not already initialized
+                if (!logger) {
+                    logger = new Logger('logger');
+                }
+                
                 // Show loading indicator
                 document.getElementById('loading').style.display = 'inline-block';
                 document.getElementById('processButton').disabled = true;
