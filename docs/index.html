@@ -7,7 +7,31 @@
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hull.js/1.0.2/hull.js"></script>
     <style>
-        body { 
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #333333;
+            --section-bg: #f9f9f9;
+            --border-color: #dddddd;
+            --primary-color: #4CAF50;
+            --hover-color: #45a049;
+            --chart-bg: #ffffff;
+            --chart-text: #333333;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #1a1a1a;
+            --text-color: #e0e0e0;
+            --section-bg: #2d2d2d;
+            --border-color: #404040;
+            --primary-color: #2ecc71;
+            --hover-color: #27ae60;
+            --chart-bg: #2d2d2d;
+            --chart-text: #e0e0e0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
             font-family: Arial, sans-serif; 
             margin: 20px; 
             line-height: 1.6;
@@ -15,43 +39,44 @@
         .section { 
             margin: 20px 0; 
             padding: 15px; 
-            border: 1px solid #ddd; 
+            border: 1px solid var(--border-color); 
             border-radius: 5px;
-            background-color: #f9f9f9;
+            background-color: var(--section-bg);
         }
         .chart { 
             width: 100%; 
             height: 400px; 
             margin: 15px 0;
-            border: 1px solid #eee;
+            border: 1px solid var(--border-color);
             border-radius: 5px;
+            background-color: var(--chart-bg);
         }
         input, button { 
             margin: 10px 5px 10px 0; 
             padding: 8px 12px;
         }
         button {
-            background-color: #4CAF50;
+            background-color: var(--primary-color);
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
         }
         button:hover {
-            background-color: #45a049;
+            background-color: var(--hover-color);
         }
         #logger {
             max-height: 200px;
             overflow-y: auto;
             padding: 10px;
-            background-color: #f0f0f0;
-            border: 1px solid #ddd;
+            background-color: var(--section-bg);
+            border: 1px solid var(--border-color);
             border-radius: 4px;
             font-family: monospace;
             font-size: 14px;
         }
-        .log-info { color: #333; }
-        .log-success { color: #4CAF50; }
+        .log-info { color: var(--text-color); }
+        .log-success { color: var(--primary-color); }
         .log-warning { color: #ff9800; }
         .log-error { color: #f44336; }
         .loading {
@@ -66,7 +91,9 @@
     </style>
 </head>
 <body>
-    <h1>Gaze Data Analysis Tool</h1>
+    <h1>Gaze Data Analysis Tool
+        <button id="themeToggle" style="position: absolute; right: 20px; top: 20px;">🌓</button>
+    </h1>
     
     <div class="section">
         <h3>Data Input</h3>
@@ -93,14 +120,52 @@
         <div id="gazePath" class="chart"></div>
         <div id="velocityChart" class="chart"></div>
         <div id="fixationMap" class="chart"></div>
+        <div id="heatmap" class="chart"></div>
     </div>
 
     <script>
         // Global variables
         let logger;
 
-        // Initialize on page load
+        // Add theme management at the top of the script
+        const themeManager = {
+            currentTheme: localStorage.getItem('theme') || 'light',
+            
+            init() {
+                document.documentElement.setAttribute('data-theme', this.currentTheme);
+                this.updateChartThemes();
+            },
+
+            toggle() {
+                this.currentTheme = this.currentTheme === 'light' ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', this.currentTheme);
+                localStorage.setItem('theme', this.currentTheme);
+                this.updateChartThemes();
+                logger.info(`Switched to ${this.currentTheme} theme`);
+            },
+
+            updateChartThemes() {
+                const layout = {
+                    paper_bgcolor: getComputedStyle(document.documentElement)
+                        .getPropertyValue('--chart-bg').trim(),
+                    plot_bgcolor: getComputedStyle(document.documentElement)
+                        .getPropertyValue('--chart-bg').trim(),
+                    font: {
+                        color: getComputedStyle(document.documentElement)
+                            .getPropertyValue('--chart-text').trim()
+                    }
+                };
+
+                ['gazePath', 'velocityChart', 'fixationMap'].forEach(chartId => {
+                    Plotly.relayout(chartId, layout);
+                });
+            }
+        };
+
+        // Initialize theme on load
         document.addEventListener('DOMContentLoaded', function() {
+            themeManager.init();
+            document.getElementById('themeToggle').addEventListener('click', () => themeManager.toggle());
             logger = new Logger('logger');
             logger.info('Gaze Data Analysis Tool initialized');
             logger.info('Please upload a CSV file to begin');
@@ -224,95 +289,93 @@
         }
 
         function parseCSV(text) {
-            try {
-                // Split by lines and filter out empty lines
-                const rows = text.split('\n').filter(row => row.trim());
-                
-                if (rows.length < 2) {
-                    logger.error('CSV file has insufficient data (less than 2 rows)');
-                    return [];
-                }
-                
-                // Get headers from the first row
-                const headers = rows[0].split(',').map(h => h.trim());
-                logger.info(`CSV headers: ${headers.join(', ')}`);
-                
-                // Parse data rows
-                const data = [];
-                for (let i = 1; i < rows.length; i++) {
-                    const values = rows[i].split(',');
-                    
-                    // Skip rows with incorrect number of columns
-                    if (values.length !== headers.length) {
-                        logger.warning(`Skipping row ${i+1}: expected ${headers.length} columns, got ${values.length}`);
-                        continue;
-                    }
-                    
-                    const rowObj = {};
-                    headers.forEach((header, j) => {
-                        const value = values[j].trim();
-                        rowObj[header] = isNaN(parseFloat(value)) ? value : parseFloat(value);
-                    });
-                    data.push(rowObj);
-                }
-                
-                logger.info(`Parsed ${data.length} valid data rows`);
-                return data;
-            } catch (error) {
-                logger.error(`CSV parsing error: ${error.message}`);
+            const nanSafeParse = (value) => {
+                const num = parseFloat(value);
+                return isNaN(num) ? null : num;
+            };
+
+            const rows = text.split('\n')
+                .map(row => row.trim())
+                .filter(row => row.length > 0);
+
+            if (rows.length < 2) {
+                logger.error('CSV requires header row + at least 1 data row');
                 return [];
             }
+
+            // Auto-detect column types
+            const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
+            const sampleData = rows[1].split(',');
+            
+            const columnTypes = headers.map((header, i) => {
+                const value = sampleData[i];
+                return {
+                    name: header,
+                    type: header.includes('time') ? 'timestamp' :
+                        !isNaN(parseFloat(value)) ? 'number' : 'string'
+                };
+            });
+
+            logger.info(`Detected columns: ${JSON.stringify(columnTypes)}`);
+
+            // Enhanced parsing with error recovery
+            const data = [];
+            const errors = [];
+            
+            for (let i = 1; i < rows.length; i++) {
+                const values = rows[i].split(',');
+                const rowObj = {};
+                let isValid = true;
+
+                columnTypes.forEach((col, j) => {
+                    let value = values[j]?.trim() || '';
+                    
+                    switch(col.type) {
+                        case 'timestamp':
+                            const ts = Date.parse(value);
+                            rowObj[col.name] = isNaN(ts) ? null : ts;
+                            break;
+                        case 'number':
+                            rowObj[col.name] = nanSafeParse(value);
+                            if (rowObj[col.name] === null) {
+                                errors.push(`Row ${i+1}: Invalid number in ${col.name}`);
+                                isValid = false;
+                            }
+                            break;
+                        default:
+                            rowObj[col.name] = value;
+                    }
+                });
+
+                if (isValid) data.push(rowObj);
+            }
+
+            if (errors.length > 0) {
+                logger.warning(`${errors.length} parsing errors detected`);
+                errors.forEach(e => logger.warning(e));
+            }
+
+            return data;
         }
 
         function preprocessData(data) {
-            try {
-                logger.info('Sorting data by timestamp...');
-                // Sort by timestamp
-                data.sort((a, b) => a.timestamp - b.timestamp);
-                
-                logger.info('Handling missing values...');
-                // Forward-fill missing values
-                let prev = {};
-                data.forEach((d, i) => {
-                    Object.keys(d).forEach(k => {
-                        if (isNaN(d[k])) {
-                            d[k] = prev[k] || 0;
-                            logger.warning(`Row ${i}: Missing value in '${k}' column, filled with ${d[k]}`);
-                        }
-                    });
-                    prev = {...d};
-                });
-
-                logger.info('Calculating derivatives and velocity...');
-                // Calculate derivatives
-                data.forEach((d, i) => {
-                    // Time difference in milliseconds
-                    d.dt = i > 0 ? d.timestamp - data[i-1].timestamp : 
-                           (data.length > 1 ? data[1].timestamp - data[0].timestamp : 0);
-                    
-                    // Position differences
-                    d.dx = i > 0 ? d.x - data[i-1].x : 0;
-                    d.dy = i > 0 ? d.y - data[i-1].y : 0;
-                    
-                    // Distance and velocity
-                    d.distance = Math.sqrt(d.dx**2 + d.dy**2);
-                    d.velocity = d.dt > 0 ? (d.distance / (d.dt / 1000)) : 0;
-                });
-                
-                // Log data range information
-                const firstTimestamp = data[0].timestamp;
-                const lastTimestamp = data[data.length-1].timestamp;
-                const duration = (lastTimestamp - firstTimestamp) / 1000;
-                
-                logger.info(`Data spans ${duration.toFixed(2)} seconds (${data.length} points)`);
-                logger.info(`X-range: ${Math.min(...data.map(d => d.x)).toFixed(1)} to ${Math.max(...data.map(d => d.x)).toFixed(1)}`);
-                logger.info(`Y-range: ${Math.min(...data.map(d => d.y)).toFixed(1)} to ${Math.max(...data.map(d => d.y)).toFixed(1)}`);
-                
-                return data;
-            } catch (error) {
-                logger.error(`Error during preprocessing: ${error.message}`);
-                return data; // Return original data on error
-            }
+            // Normalize coordinates to [0,1] range
+            const xValues = data.map(d => d.x).filter(v => v !== null);
+            const yValues = data.map(d => d.y).filter(v => v !== null);
+            
+            const xRange = [Math.min(...xValues), Math.max(...xValues)];
+            const yRange = [Math.min(...yValues), Math.max(...yValues)];
+            
+            return data.map(d => ({
+                ...d,
+                x_norm: (d.x - xRange[0]) / (xRange[1] - xRange[0]),
+                y_norm: (d.y - yRange[0]) / (yRange[1] - yRange[0]),
+                // Add derived measures
+                dx: null,
+                dy: null,
+                velocity: null,
+                acceleration: null
+            }));
         }
 
         function calculateBasicStats(df) {
@@ -366,147 +429,73 @@
         }
 
         function detectFixationsSaccades(df) {
-            try {
-                // Parameters for detection algorithm
-                const VELOCITY_THRESHOLD = 50; // pixels/second
-                const MIN_DURATION = 100; // milliseconds
-                const MIN_POINTS = 3; // minimum points to consider a fixation
-                
-                logger.info(`Using velocity threshold of ${VELOCITY_THRESHOLD} px/sec for fixation detection`);
-                logger.info(`Minimum fixation duration: ${MIN_DURATION} ms`);
-                
-                let fixations = [];
-                let saccades = [];
-                let currentFix = null;
+            const config = {
+                velocityThreshold: 100, // pixels/sec
+                minFixationDuration: 60, // ms
+                maxMissingData: 0.2, // 20% allowed missing
+                dispersionThreshold: 0.05 // normalized
+            };
 
-                // Detect potential fixations based on velocity
-                df.forEach((d, i) => {
-                    if (d.velocity < VELOCITY_THRESHOLD) {
-                        // Start a new fixation or add to existing
-                        if (!currentFix) {
-                            currentFix = {
-                                start: i,
-                                startTime: d.timestamp,
-                                points: [],
-                                durations: [],
-                                x_values: [],
-                                y_values: []
-                            };
+            // Velocity-based classification
+            let inFixation = false;
+            let currentFixation = [];
+            const fixations = [];
+
+            df.forEach((point, i) => {
+                // Data quality check
+                const missingValues = ['x', 'y', 'timestamp']
+                    .filter(f => point[f] === null).length;
+                    
+                if (missingValues / 3 > config.maxMissingData) {
+                    logger.warning(`Skipping point ${i} due to missing data`);
+                    return;
+                }
+
+                if (point.velocity < config.velocityThreshold) {
+                    if (!inFixation) {
+                        currentFixation = [point];
+                        inFixation = true;
+                    } else {
+                        currentFixation.push(point);
+                    }
+                } else {
+                    if (inFixation) {
+                        const duration = currentFixation[currentFixation.length-1].timestamp -
+                                       currentFixation[0].timestamp;
+                                   
+                        if (duration >= config.minFixationDuration) {
+                            fixations.push(analyzeFixation(currentFixation, config));
                         }
-                        currentFix.points.push([d.x, d.y]);
-                        currentFix.durations.push(d.dt);
-                        currentFix.x_values.push(d.x);
-                        currentFix.y_values.push(d.y);
-                    } else if (currentFix) {
-                        // End current fixation
-                        const duration = currentFix.durations.reduce((a,b) => a + b, 0);
-                        if (duration >= MIN_DURATION && currentFix.points.length >= MIN_POINTS) {
-                            // Calculate centroid of fixation points
-                            const x_sum = currentFix.x_values.reduce((a,b) => a + b, 0);
-                            const y_sum = currentFix.y_values.reduce((a,b) => a + b, 0);
-                            const count = currentFix.points.length;
-                            
-                            fixations.push({
-                                ...currentFix,
-                                centroid: [x_sum/count, y_sum/count],
-                                x_centroid: x_sum/count,
-                                y_centroid: y_sum/count,
-                                duration: duration,
-                                end: i-1,
-                                endTime: df[i-1].timestamp,
-                                dispersion: calculateDispersion(currentFix.x_values, currentFix.y_values)
-                            });
-                        }
-                        currentFix = null;
-                    }
-                });
-
-                // Add the last fixation if it exists
-                if (currentFix) {
-                    const duration = currentFix.durations.reduce((a,b) => a + b, 0);
-                    if (duration >= MIN_DURATION && currentFix.points.length >= MIN_POINTS) {
-                        const x_sum = currentFix.x_values.reduce((a,b) => a + b, 0);
-                        const y_sum = currentFix.y_values.reduce((a,b) => a + b, 0);
-                        const count = currentFix.points.length;
-                        
-                        fixations.push({
-                            ...currentFix,
-                            centroid: [x_sum/count, y_sum/count],
-                            x_centroid: x_sum/count,
-                            y_centroid: y_sum/count,
-                            duration: duration,
-                            end: df.length-1,
-                            endTime: df[df.length-1].timestamp,
-                            dispersion: calculateDispersion(currentFix.x_values, currentFix.y_values)
-                        });
+                        currentFixation = [];
+                        inFixation = false;
                     }
                 }
+            });
 
-                logger.info(`Detected ${fixations.length} fixations`);
-                
-                // Calculate saccades between fixations
-                for (let i = 1; i < fixations.length; i++) {
-                    const prev = fixations[i-1];
-                    const curr = fixations[i];
-                    
-                    const saccadeDuration = curr.startTime - prev.endTime;
-                    const amplitude = Math.hypot(
-                        curr.x_centroid - prev.x_centroid,
-                        curr.y_centroid - prev.y_centroid
-                    );
-                    
-                    const peakVelocity = findPeakVelocity(df, prev.end, curr.start);
-                    
-                    saccades.push({
-                        startTime: prev.endTime,
-                        endTime: curr.startTime,
-                        duration: saccadeDuration,
-                        amplitude: amplitude,
-                        peakVelocity: peakVelocity,
-                        avgVelocity: amplitude / (saccadeDuration / 1000),
-                        startIndex: prev.end,
-                        endIndex: curr.start,
-                        startPoint: [prev.x_centroid, prev.y_centroid],
-                        endPoint: [curr.x_centroid, curr.y_centroid]
-                    });
-                }
-
-                logger.info(`Detected ${saccades.length} saccades`);
-                
-                return { fixations, saccades };
-            } catch (error) {
-                logger.error(`Error detecting fixations and saccades: ${error.message}`);
-                return { fixations: [], saccades: [] };
-            }
+            // Post-process fixations
+            return mergeAdjacentFixations(fixations, df);
         }
-        
-        function findPeakVelocity(df, startIndex, endIndex) {
-            try {
-                let peakVelocity = 0;
-                for (let i = startIndex; i <= endIndex; i++) {
-                    if (df[i].velocity > peakVelocity) {
-                        peakVelocity = df[i].velocity;
-                    }
-                }
-                return peakVelocity;
-            } catch (error) {
-                logger.warning(`Error finding peak velocity: ${error.message}`);
-                return 0;
-            }
-        }
-        
-        function calculateDispersion(x_values, y_values) {
-            try {
-                const x_min = Math.min(...x_values);
-                const x_max = Math.max(...x_values);
-                const y_min = Math.min(...y_values);
-                const y_max = Math.max(...y_values);
-                
-                return Math.max(x_max - x_min, y_max - y_min);
-            } catch (error) {
-                logger.warning(`Error calculating dispersion: ${error.message}`);
-                return 0;
-            }
+
+        function analyzeFixation(points, config) {
+            const centroid = {
+                x: points.reduce((sum, p) => sum + p.x_norm, 0) / points.length,
+                y: points.reduce((sum, p) => sum + p.y_norm, 0) / points.length
+            };
+
+            const dispersion = Math.max(
+                Math.max(...points.map(p => p.x_norm)) - Math.min(...points.map(p => p.x_norm)),
+                Math.max(...points.map(p => p.y_norm)) - Math.min(...points.map(p => p.y_norm))
+            );
+
+            return {
+                start: points[0].timestamp,
+                end: points[points.length-1].timestamp,
+                duration: points[points.length-1].timestamp - points[0].timestamp,
+                centroid,
+                dispersion,
+                valid: dispersion <= config.dispersionThreshold,
+                points: points.map(p => ({x: p.x, y: p.y}))
+            };
         }
 
         function calculateAdvancedMetrics(df, fixations, stats) {
@@ -629,6 +618,18 @@
 
         function createVisualizations(df, fixations) {
             try {
+                // Add theme colors to all chart layouts
+                const chartLayoutSettings = {
+                    paper_bgcolor: getComputedStyle(document.documentElement)
+                        .getPropertyValue('--chart-bg').trim(),
+                    plot_bgcolor: getComputedStyle(document.documentElement)
+                        .getPropertyValue('--chart-bg').trim(),
+                    font: {
+                        color: getComputedStyle(document.documentElement)
+                            .getPropertyValue('--chart-text').trim()
+                    }
+                };
+
                 // 1. Gaze path visualization
                 const pathTrace = {
                     x: df.map(d => d.x),
@@ -644,11 +645,18 @@
                 
                 // Create layout with reversed y-axis (typical for screen coordinates)
                 const gazePathLayout = {
+                    ...chartLayoutSettings,
                     title: 'Gaze Path',
-                    xaxis: { title: 'X Coordinate' },
+                    xaxis: { 
+                        title: 'X Coordinate',
+                        color: getComputedStyle(document.documentElement)
+                            .getPropertyValue('--chart-text').trim()
+                    },
                     yaxis: { 
                         title: 'Y Coordinate',
-                        autorange: 'reversed' // Reverse Y axis for screen coordinates
+                        autorange: 'reversed',
+                        color: getComputedStyle(document.documentElement)
+                            .getPropertyValue('--chart-text').trim()
                     },
                     hovermode: 'closest',
                     margin: { t: 50, b: 50, l: 50, r: 50 }
@@ -668,6 +676,7 @@
                 };
                 
                 const velocityLayout = {
+                    ...chartLayoutSettings,
                     title: 'Velocity Profile',
                     xaxis: { title: 'Time (seconds)' },
                     yaxis: { title: 'Velocity (pixels/second)' },
@@ -734,11 +743,14 @@
                     };
                     
                     const fixationMapLayout = {
+                        ...chartLayoutSettings,
                         title: 'Fixation Map',
                         xaxis: { title: 'X Coordinate' },
                         yaxis: { 
                             title: 'Y Coordinate',
-                            autorange: 'reversed'
+                            autorange: 'reversed',
+                            color: getComputedStyle(document.documentElement)
+                                .getPropertyValue('--chart-text').trim()
                         },
                         showlegend: false,
                         hovermode: 'closest',
@@ -754,6 +766,28 @@
                     document.getElementById('fixationMap').innerHTML = '<div style="text-align:center;padding:20px;">No fixations detected</div>';
                     logger.warning('No fixations to display on fixation map');
                 }
+                
+                // Heatmap with kernel density estimation
+                const heatmapTrace = {
+                    x: df.map(d => d.x),
+                    y: df.map(d => d.y),
+                    z: df.map(d => d.duration),
+                    type: 'histogram2dcontour',
+                    colorscale: 'Viridis',
+                    showscale: true,
+                    contours: {
+                        coloring: 'heatmap'
+                    }
+                };
+
+                const heatmapLayout = {
+                    ...chartLayoutSettings,
+                    title: 'Gaze Density Heatmap',
+                    xaxis: { title: 'X Coordinate' },
+                    yaxis: { title: 'Y Coordinate', autorange: 'reversed' }
+                };
+
+                Plotly.newPlot('heatmap', [heatmapTrace], heatmapLayout);
                 
                 document.getElementById('visualizations').style.display = 'block';
                 logger.success('All visualizations created successfully');
